@@ -1,0 +1,41 @@
+{
+  "name": "dex-sscr",
+  "module": "src/worker.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/worker.ts",
+    "start": "bun run src/worker.ts",
+    "gen-chart": "tsx --env-file .dev.vars scripts/gen-chart.ts",
+    "clean": "rm -rf ./data",
+    "cf-typegen": "wrangler types src/types/worker-configuration.d.ts --env-interface CloudflareBindings",
+    "build": "tsup src/worker.ts --format esm --dts --clean",
+    "lint": "biome check --write src",
+    "format": "biome format --write src",
+    "ci": "bun run lint && bun run format"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.1.2",
+    "@types/bun": "latest",
+    "@types/skia-canvas": "^0.9.28",
+    "drizzle-kit": "^0.31.4",
+    "tsup": "^8.0.2",
+    "tsx": "^4.20.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "drizzle-orm": "^0.44.3",
+    "sharp": "^0.33.1",
+    "skia-canvas": "^2.0.2"
+  },
+  "trustedDependencies": [
+    "skia-canvas"
+  ],
+  "packageManager": "bun@1.2.19",
+  "engines": {
+    "node": ">=22"
+  }
+}
