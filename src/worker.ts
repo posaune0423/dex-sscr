@@ -7,6 +7,11 @@ import { CHART_DEFAULTS } from "./constants";
 import type { ChartGenerationConfig } from "./types";
 import { logger } from "./utils/logger";
 
+// For R2 upload functionality, import:
+// import { generateChartWithR2 } from "./chart-generator";
+// import { getR2Bucket } from "./lib/r2";
+// import type { ChartGenerationWithR2Config } from "./types";
+
 interface ChartRequest {
   tokenAddress: string;
   entryPrice: number;

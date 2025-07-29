@@ -6,16 +6,20 @@
 import type { Canvas, CanvasRenderingContext2D } from "skia-canvas";
 import { CHART_STYLE, NEON_STROKES } from "./constants";
 import { createCanvas, drawNeonGlow, getContext, hexToRgba } from "./lib/canvas";
+import { generateR2Key, uploadToR2 } from "./lib/r2";
 import type {
   ChartConfig,
   ChartData,
   ChartGenerationConfig,
+  ChartGenerationResult,
+  ChartGenerationWithR2Config,
   ChartPadding,
   ChartStyle,
   Coordinate,
   NeonStrokeConfig,
   OHLCVDataParams,
   Point,
+  R2UploadResult,
 } from "./types";
 import { generateChartMetrics, validatePointData } from "./utils/chart-calculations";
 import { downsampleMinMax, fetchOHLCVData, validateTokenForCharting } from "./utils/db";
@@ -473,10 +477,10 @@ export function renderChart(ctx: CanvasRenderingContext2D, chartData: ChartData,
 }
 
 /**
- * Generate a chart from OHLCV data
- * Main chart generation orchestration function
+ * Generate a chart from OHLCV data with optional R2 upload
+ * Enhanced chart generation orchestration function
  */
-export async function generateChart(config: ChartGenerationConfig): Promise<void> {
+export async function generateChartWithR2(config: ChartGenerationWithR2Config): Promise<ChartGenerationResult> {
   logger.info(`Starting chart generation for token: ${config.tokenAddress}`);
 
   try {
@@ -530,29 +534,74 @@ export async function generateChart(config: ChartGenerationConfig): Promise<void
     // Step 9: Export chart directly using skia-canvas built-in methods
     const imageBuffer = await canvas.toBuffer("png");
 
-    // Step 10: Ensure output directory exists
-    await ensureOutputDirectory(config.outputPath);
-
-    // Step 11: Optimize and save image using Sharp
+    // Step 10: Optimize image using Sharp
     const optimizedBuffer = await optimizeImageWithSharp(imageBuffer);
-    await canvas.saveAs(config.outputPath);
 
-    // Step 12: Generate and log metrics
+    let localPath: string | undefined;
+    let r2Upload: R2UploadResult | undefined;
+
+    // Step 11: Handle local saving if outputPath is provided
+    if (config.outputPath) {
+      await ensureOutputDirectory(config.outputPath);
+      await canvas.saveAs(config.outputPath);
+      localPath = config.outputPath;
+      logger.info(`Chart saved locally: ${config.outputPath}`);
+    }
+
+    // Step 12: Handle R2 upload if bucket is provided
+    if (config.r2Bucket) {
+      const r2Key = generateR2Key(
+        ohlcvResult.tokenAddress.slice(-8), // Use last 8 chars of token address as symbol
+        config.periodHours,
+      );
+
+      r2Upload = await uploadToR2(optimizedBuffer, r2Key, config.r2Bucket, "image/png");
+
+      if (r2Upload.success) {
+        logger.info(`Chart uploaded to R2: ${r2Upload.url}`);
+      } else {
+        logger.error(`R2 upload failed: ${r2Upload.error}`);
+      }
+    }
+
+    // Step 13: Generate and log metrics
+    const metricsOutputPath = localPath || (r2Upload?.success ? (r2Upload.url ?? "memory") : "memory");
     const metrics = generateChartMetrics(
       ohlcvResult.points,
       downsampledData,
       config.entryPrice,
       config.isBullish,
-      config.outputPath,
+      metricsOutputPath,
       optimizedBuffer.byteLength,
       { width: config.width, height: config.height, dpr: config.dpr },
     );
 
     logger.info("Chart generation completed successfully!");
     logger.info(`Chart metrics: ${JSON.stringify(metrics, null, 2)}`);
+
+    return {
+      metrics,
+      localPath,
+      r2Upload,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     logger.error(`Chart generation failed: ${message}`);
     throw new Error(`Chart generation failed: ${message}`);
   }
+}
+
+/**
+ * Generate a chart from OHLCV data (backward compatible)
+ * Main chart generation orchestration function
+ */
+export async function generateChart(config: ChartGenerationConfig): Promise<void> {
+  const result = await generateChartWithR2({
+    ...config,
+    outputPath: config.outputPath,
+  });
+
+  // Just log the metrics for backward compatibility
+  logger.info("Chart generation completed successfully!");
+  logger.info(`Chart metrics: ${JSON.stringify(result.metrics, null, 2)}`);
 }

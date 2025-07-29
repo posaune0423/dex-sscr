@@ -5,6 +5,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+// R2Bucket type is available globally from worker types
 import sharp from "sharp";
 import { FILE_CONFIG } from "../constants";
 import { logger } from "./logger";

@@ -84,6 +84,26 @@ export interface ChartGenerationConfig {
   readonly isBullish: boolean;
 }
 
+// Configuration for chart generation with R2 upload support
+export interface ChartGenerationWithR2Config extends Omit<ChartGenerationConfig, "outputPath"> {
+  readonly r2Bucket?: R2Bucket;
+  readonly outputPath?: string; // Optional when using R2
+}
+
+// Result from R2 upload operation
+export interface R2UploadResult {
+  readonly success: boolean;
+  readonly url?: string;
+  readonly error?: string;
+}
+
+// Extended chart generation result with R2 support
+export interface ChartGenerationResult {
+  readonly metrics: ChartMetrics;
+  readonly localPath?: string;
+  readonly r2Upload?: R2UploadResult;
+}
+
 // Database query parameters
 export interface OHLCVDataParams {
   readonly tokenAddress: string;
