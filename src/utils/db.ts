@@ -4,13 +4,10 @@
  */
 
 import { and, count, desc, eq, gte, lte } from "drizzle-orm";
-import { createDefaultChartConfig, renderChart, setupChartCanvas } from "../chart-generator";
 import { CHART_DEFAULTS, DB_CONFIG, KNOWN_TOKENS } from "../constants";
 import { getDB } from "../db";
 import { tokenOHLCV } from "../db/schema";
-import type { ChartGenerationConfig, OHLCVDataParams, OHLCVDataResult, Point } from "../types";
-import { generateChartMetrics, validatePointData } from "./chart-calculations";
-import { ensureOutputDirectory, optimizeImageWithSharp } from "./file-operations";
+import type { OHLCVDataParams, OHLCVDataResult, Point } from "../types";
 import { logger } from "./logger";
 
 // Re-export known tokens from constants
@@ -100,7 +97,11 @@ export async function fetchOHLCVData(params: OHLCVDataParams): Promise<OHLCVData
       throw new Error(`No data found for token ${tokenAddress}`);
     }
 
-    const latestTimestamp = latestDataResult[0]!.timestamp;
+    const latestTimestamp = latestDataResult[0]?.timestamp;
+
+    if (!latestTimestamp) {
+      throw new Error(`No valid timestamp found for token ${tokenAddress}`);
+    }
     const endTime = latestTimestamp;
     const startTime = endTime - periodHours * 60 * 60;
 
@@ -191,87 +192,4 @@ function extractMinMaxFromBin(bin: readonly Point[]): readonly Point[] | null {
   return minPoint.t < maxPoint.t ? [minPoint, maxPoint] : [maxPoint, minPoint];
 }
 
-/**
- * Generate a chart from OHLCV data
- * Simplified implementation using direct skia-canvas API
- */
-export async function generateChart(config: ChartGenerationConfig): Promise<void> {
-  logger.info(`Starting chart generation for token: ${config.tokenAddress}`);
-
-  try {
-    // Step 1: Validate token has sufficient data
-    const validation = await validateTokenForCharting(config.tokenAddress);
-    if (!validation.isValid) {
-      throw new Error(
-        `Token ${config.tokenAddress} does not have sufficient data for charting (${validation.dataCount} points)`,
-      );
-    }
-
-    // Step 2: Fetch OHLCV data from database
-    const ohlcvParams: OHLCVDataParams = {
-      tokenAddress: config.tokenAddress,
-      periodHours: config.periodHours,
-      intervalMinutes: CHART_DEFAULTS.INTERVAL_MINUTES,
-    };
-
-    const ohlcvResult = await fetchOHLCVData(ohlcvParams);
-
-    if (ohlcvResult.points.length === 0) {
-      throw new Error(`No OHLCV data retrieved for token ${config.tokenAddress}`);
-    }
-
-    // Step 3: Validate data integrity
-    const dataValidation = validatePointData(ohlcvResult.points);
-    if (!dataValidation.isValid) {
-      throw new Error(`Invalid OHLCV data: ${dataValidation.errors.join(", ")}`);
-    }
-
-    // Step 4: Calculate optimal downsampling width
-    const downsampleWidth = Math.round(config.width * 2);
-
-    // Step 5: Downsample data for rendering optimization
-    const downsampledData = downsampleMinMax(ohlcvResult.points, downsampleWidth);
-
-    // Step 6: Create chart configuration
-    const chartConfig = createDefaultChartConfig(config.width, config.height, config.dpr);
-
-    // Step 7: Prepare chart data with user's entry price and position direction
-    const chartData = {
-      points: downsampledData,
-      entryPrice: config.entryPrice,
-      isBullish: config.isBullish,
-    };
-
-    // Step 8: Setup canvas and render chart
-    const { canvas, ctx } = setupChartCanvas(config.width, config.height, config.dpr);
-    renderChart(ctx, chartData, chartConfig);
-
-    // Step 9: Export chart directly using skia-canvas built-in methods
-    const imageBuffer = await canvas.toBuffer("png");
-
-    // Step 10: Ensure output directory exists
-    await ensureOutputDirectory(config.outputPath);
-
-    // Step 11: Optimize and save image using Sharp
-    const optimizedBuffer = await optimizeImageWithSharp(imageBuffer);
-    await canvas.saveAs(config.outputPath);
-
-    // Step 12: Generate and log metrics
-    const metrics = generateChartMetrics(
-      ohlcvResult.points,
-      downsampledData,
-      config.entryPrice,
-      config.isBullish,
-      config.outputPath,
-      optimizedBuffer.byteLength,
-      { width: config.width, height: config.height, dpr: config.dpr },
-    );
-
-    logger.info("Chart generation completed successfully!");
-    logger.info(`Chart metrics: ${JSON.stringify(metrics, null, 2)}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    logger.error(`Chart generation failed: ${message}`);
-    throw new Error(`Chart generation failed: ${message}`);
-  }
-}
+// generateChart function has been moved to src/chart-generator.ts for better responsibility separation

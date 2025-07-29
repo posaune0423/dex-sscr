@@ -7,7 +7,7 @@
     "dev": "bun run --watch src/worker.ts",
     "start": "bun run src/worker.ts",
     "gen-chart": "tsx --env-file .dev.vars scripts/gen-chart.ts",
-    "clean": "rm -rf ./data",
+    "clean": "rm -rf ./data/*",
     "cf-typegen": "wrangler types src/types/worker-configuration.d.ts --env-interface CloudflareBindings",
     "build": "tsup src/worker.ts --format esm --dts --clean",
     "lint": "biome check --write src",

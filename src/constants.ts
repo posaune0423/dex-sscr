@@ -21,12 +21,18 @@ export const CHART_STYLE = {
     BACKGROUND_START: "#050607",
     BACKGROUND_END: "#0b0f10",
     GRID: "rgba(255,255,255,0.08)",
+    AXIS_LABELS: "rgba(255,255,255,0.6)", // Greyish color for axis labels
   },
   PADDING: {
-    LEFT_RATIO: 0.04, // 32px at 800px width
-    RIGHT_RATIO: 0.025, // 20px at 800px width
-    TOP_RATIO: 0.05, // 18px at 360px height
-    BOTTOM_RATIO: 0.078, // 28px at 360px height
+    LEFT_RATIO: 0.06, // 48px at 800px width - increased for better spacing
+    RIGHT_RATIO: 0.12, // 96px at 800px width - increased for price labels
+    TOP_RATIO: 0.08, // 29px at 360px height - increased for better spacing
+    BOTTOM_RATIO: 0.15, // 54px at 360px height - increased for time labels
+  },
+  AXIS: {
+    FONT_SIZE_RATIO: 0.01, // Font size relative to canvas width (9.6px at 800px)
+    TICK_LENGTH: 4, // Length of tick marks
+    LABEL_PADDING: 8, // Padding between axis and labels
   },
   GRID_LINES: 4,
   Y_MARGIN_RATIO: 0.06,

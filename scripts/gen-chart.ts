@@ -3,9 +3,10 @@
  * Usage: tsx --env-file .dev.vars scripts/gen-chart.ts [token_symbol] [period_hours]
  */
 
+import { generateChart } from "../src/chart-generator";
 import { CHART_DEFAULTS } from "../src/constants";
 import type { ChartGenerationConfig, Point } from "../src/types";
-import { fetchOHLCVData, generateChart, getAvailableTokens, KNOWN_TOKENS, validateTokenForCharting } from "../src/utils/db";
+import { fetchOHLCVData, getAvailableTokens, KNOWN_TOKENS, validateTokenForCharting } from "../src/utils/db";
 import { logger } from "../src/utils/logger";
 
 interface ScriptArgs {

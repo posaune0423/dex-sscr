@@ -6,7 +6,20 @@
 import type { Canvas, CanvasRenderingContext2D } from "skia-canvas";
 import { CHART_STYLE, NEON_STROKES } from "./constants";
 import { createCanvas, drawNeonGlow, getContext, hexToRgba } from "./lib/canvas";
-import type { ChartConfig, ChartData, ChartPadding, ChartStyle, Coordinate, NeonStrokeConfig, Point } from "./types";
+import type {
+  ChartConfig,
+  ChartData,
+  ChartGenerationConfig,
+  ChartPadding,
+  ChartStyle,
+  Coordinate,
+  NeonStrokeConfig,
+  OHLCVDataParams,
+  Point,
+} from "./types";
+import { generateChartMetrics, validatePointData } from "./utils/chart-calculations";
+import { downsampleMinMax, fetchOHLCVData, validateTokenForCharting } from "./utils/db";
+import { ensureOutputDirectory, optimizeImageWithSharp } from "./utils/file-operations";
 import { logger } from "./utils/logger";
 
 interface ScalingParams {
@@ -84,6 +97,148 @@ function scalePointsToCanvas(params: ScalingParams): ScaledChartData {
 }
 
 /**
+ * Format price value for display
+ */
+function formatPrice(value: number): string {
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(1)}K`;
+  }
+  if (value >= 1) {
+    return `$${value.toFixed(2)}`;
+  }
+  if (value >= 0.01) {
+    return `$${value.toFixed(3)}`;
+  }
+  return `$${value.toFixed(6)}`;
+}
+
+/**
+ * Format timestamp for display
+ */
+function formatTime(timestamp: number, timeRange: number): string {
+  const date = new Date(timestamp);
+
+  // For periods > 7 days, show date
+  if (timeRange > 7 * 24 * 60 * 60 * 1000) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  // For periods > 1 day, show date and time
+  if (timeRange > 24 * 60 * 60 * 1000) {
+    return (
+      date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+      "\n" +
+      date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+    );
+  }
+
+  // For shorter periods, show time only
+  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Draw Y-axis (price) labels
+ */
+function drawYAxis(
+  ctx: CanvasRenderingContext2D,
+  yMin: number,
+  yMax: number,
+  yScale: (value: number) => number,
+  padding: ChartPadding,
+  width: number,
+  dpr: number,
+): void {
+  const tickCount = 5;
+  const fontSize = width * CHART_STYLE.AXIS.FONT_SIZE_RATIO * dpr;
+
+  ctx.save();
+  ctx.fillStyle = CHART_STYLE.COLORS.AXIS_LABELS;
+  ctx.strokeStyle = CHART_STYLE.COLORS.AXIS_LABELS;
+  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 1;
+
+  for (let i = 0; i <= tickCount; i++) {
+    const value = yMin + (yMax - yMin) * (i / tickCount);
+    const y = yScale(value);
+    const text = formatPrice(value);
+
+    // Draw price label with better positioning
+    const labelX = width - padding.r + CHART_STYLE.AXIS.LABEL_PADDING * dpr;
+    ctx.fillText(text, labelX, y);
+
+    // Draw tick mark
+    ctx.beginPath();
+    ctx.moveTo(width - padding.r, y);
+    ctx.lineTo(width - padding.r + CHART_STYLE.AXIS.TICK_LENGTH * dpr, y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+  logger.debug("Drew Y-axis price labels");
+}
+
+/**
+ * Draw X-axis (time) labels
+ */
+function drawXAxis(
+  ctx: CanvasRenderingContext2D,
+  points: readonly Point[],
+  xScale: (timestamp: number) => number,
+  padding: ChartPadding,
+  height: number,
+  width: number,
+  dpr: number,
+): void {
+  if (points.length === 0) return;
+
+  const tickCount = 5;
+  const fontSize = width * CHART_STYLE.AXIS.FONT_SIZE_RATIO * dpr;
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+
+  if (!firstPoint || !lastPoint) {
+    logger.warn("Invalid points data for X-axis rendering");
+    return;
+  }
+
+  const timeRange = lastPoint.t - firstPoint.t;
+
+  ctx.save();
+  ctx.fillStyle = CHART_STYLE.COLORS.AXIS_LABELS;
+  ctx.strokeStyle = CHART_STYLE.COLORS.AXIS_LABELS;
+  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.lineWidth = 1;
+
+  for (let i = 0; i <= tickCount; i++) {
+    const timestamp = firstPoint.t + (timeRange * i) / tickCount;
+    const x = xScale(timestamp);
+    const text = formatTime(timestamp, timeRange);
+
+    // Handle multi-line text for date + time format
+    const lines = text.split("\n");
+    const lineHeight = fontSize * 1.3;
+
+    lines.forEach((line, lineIndex) => {
+      const y = height - padding.b + CHART_STYLE.AXIS.LABEL_PADDING * dpr + lineIndex * lineHeight;
+      ctx.fillText(line, x, y);
+    });
+
+    // Draw tick mark
+    ctx.beginPath();
+    ctx.moveTo(x, height - padding.b);
+    ctx.lineTo(x, height - padding.b + CHART_STYLE.AXIS.TICK_LENGTH * dpr);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+  logger.debug("Drew X-axis time labels");
+}
+
+/**
  * Draw background with gradient
  */
 function drawBackground(ctx: CanvasRenderingContext2D, width: number, height: number, style: ChartStyle): void {
@@ -96,7 +251,7 @@ function drawBackground(ctx: CanvasRenderingContext2D, width: number, height: nu
 }
 
 /**
- * Draw horizontal grid lines
+ * Draw horizontal and vertical grid lines
  */
 function drawGrid(
   ctx: CanvasRenderingContext2D,
@@ -109,8 +264,10 @@ function drawGrid(
   ctx.strokeStyle = style.gridColor;
   ctx.lineWidth = 1;
 
+  const innerWidth = width - padding.l - padding.r;
   const innerHeight = height - padding.t - padding.b;
 
+  // Draw horizontal grid lines
   for (let i = 0; i <= gridLines; i++) {
     const y = Math.round(padding.t + (i / gridLines) * innerHeight) + 0.5;
 
@@ -120,7 +277,18 @@ function drawGrid(
     ctx.stroke();
   }
 
-  logger.debug(`Drew ${gridLines + 1} grid lines`);
+  // Draw vertical grid lines
+  const verticalLines = 5; // Number of vertical grid lines
+  for (let i = 0; i <= verticalLines; i++) {
+    const x = Math.round(padding.l + (i / verticalLines) * innerWidth) + 0.5;
+
+    ctx.beginPath();
+    ctx.moveTo(x, padding.t);
+    ctx.lineTo(x, height - padding.b);
+    ctx.stroke();
+  }
+
+  logger.debug(`Drew ${gridLines + 1} horizontal and ${verticalLines + 1} vertical grid lines`);
 }
 
 /**
@@ -241,7 +409,6 @@ export function createDefaultChartConfig(width: number, height: number, dpr: num
       dpr,
     },
     padding: {
-      // Padding should be in logical pixels, not scaled by DPR
       l: Math.round(width * CHART_STYLE.PADDING.LEFT_RATIO),
       r: Math.round(width * CHART_STYLE.PADDING.RIGHT_RATIO),
       t: Math.round(height * CHART_STYLE.PADDING.TOP_RATIO),
@@ -270,7 +437,7 @@ export function setupChartCanvas(
 }
 
 /**
- * Main chart rendering function - simplified and direct
+ * Main chart rendering function - with axes support
  */
 export function renderChart(ctx: CanvasRenderingContext2D, chartData: ChartData, config: ChartConfig): void {
   const { dimensions, padding } = config;
@@ -293,9 +460,99 @@ export function renderChart(ctx: CanvasRenderingContext2D, chartData: ChartData,
   // Render all chart elements in order
   drawBackground(ctx, canvasWidth, canvasHeight, style);
   drawGrid(ctx, canvasWidth, canvasHeight, padding, style);
+
+  // Draw axes
+  drawYAxis(ctx, scaledData.yMin, scaledData.yMax, scaledData.yScale, padding, canvasWidth, dimensions.dpr);
+  drawXAxis(ctx, chartData.points, scaledData.xScale, padding, canvasHeight, canvasWidth, dimensions.dpr);
+
   drawEntryLine(ctx, chartData.entryPrice, canvasWidth, padding, scaledData.yScale, style, dimensions.dpr);
   drawAreaFill(ctx, scaledData.coordinates, canvasHeight, padding, style.lineColor);
   drawChartLine(ctx, scaledData.coordinates, style.lineColor);
 
   logger.info(`Rendered chart with ${chartData.points.length} points, bullish: ${chartData.isBullish}`);
+}
+
+/**
+ * Generate a chart from OHLCV data
+ * Main chart generation orchestration function
+ */
+export async function generateChart(config: ChartGenerationConfig): Promise<void> {
+  logger.info(`Starting chart generation for token: ${config.tokenAddress}`);
+
+  try {
+    // Step 1: Validate token has sufficient data
+    const validation = await validateTokenForCharting(config.tokenAddress);
+    if (!validation.isValid) {
+      throw new Error(
+        `Token ${config.tokenAddress} does not have sufficient data for charting (${validation.dataCount} points)`,
+      );
+    }
+
+    // Step 2: Fetch OHLCV data from database
+    const ohlcvParams: OHLCVDataParams = {
+      tokenAddress: config.tokenAddress,
+      periodHours: config.periodHours,
+      intervalMinutes: 1, // Default interval
+    };
+
+    const ohlcvResult = await fetchOHLCVData(ohlcvParams);
+
+    if (ohlcvResult.points.length === 0) {
+      throw new Error(`No OHLCV data retrieved for token ${config.tokenAddress}`);
+    }
+
+    // Step 3: Validate data integrity
+    const dataValidation = validatePointData(ohlcvResult.points);
+    if (!dataValidation.isValid) {
+      throw new Error(`Invalid OHLCV data: ${dataValidation.errors.join(", ")}`);
+    }
+
+    // Step 4: Calculate optimal downsampling width
+    const downsampleWidth = Math.round(config.width * 2);
+
+    // Step 5: Downsample data for rendering optimization
+    const downsampledData = downsampleMinMax(ohlcvResult.points, downsampleWidth);
+
+    // Step 6: Create chart configuration
+    const chartConfig = createDefaultChartConfig(config.width, config.height, config.dpr);
+
+    // Step 7: Prepare chart data with user's entry price and position direction
+    const chartData = {
+      points: downsampledData,
+      entryPrice: config.entryPrice,
+      isBullish: config.isBullish,
+    };
+
+    // Step 8: Setup canvas and render chart
+    const { canvas, ctx } = setupChartCanvas(config.width, config.height, config.dpr);
+    renderChart(ctx, chartData, chartConfig);
+
+    // Step 9: Export chart directly using skia-canvas built-in methods
+    const imageBuffer = await canvas.toBuffer("png");
+
+    // Step 10: Ensure output directory exists
+    await ensureOutputDirectory(config.outputPath);
+
+    // Step 11: Optimize and save image using Sharp
+    const optimizedBuffer = await optimizeImageWithSharp(imageBuffer);
+    await canvas.saveAs(config.outputPath);
+
+    // Step 12: Generate and log metrics
+    const metrics = generateChartMetrics(
+      ohlcvResult.points,
+      downsampledData,
+      config.entryPrice,
+      config.isBullish,
+      config.outputPath,
+      optimizedBuffer.byteLength,
+      { width: config.width, height: config.height, dpr: config.dpr },
+    );
+
+    logger.info("Chart generation completed successfully!");
+    logger.info(`Chart metrics: ${JSON.stringify(metrics, null, 2)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Chart generation failed: ${message}`);
+    throw new Error(`Chart generation failed: ${message}`);
+  }
 }

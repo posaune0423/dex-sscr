@@ -2,9 +2,9 @@
  * Cloudflare Worker for chart generation
  */
 
+import { generateChart } from "./chart-generator";
 import { CHART_DEFAULTS } from "./constants";
 import type { ChartGenerationConfig } from "./types";
-import { generateChart } from "./utils/db";
 import { logger } from "./utils/logger";
 
 interface ChartRequest {

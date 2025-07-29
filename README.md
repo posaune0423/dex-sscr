@@ -5,11 +5,13 @@ A **DEX Screenshot Service** that generates beautiful trading charts from OHLCV 
 ## 🚀 Features
 
 - **Beautiful Chart Generation**: Create neon-styled trading charts with entry price indicators
+- **Professional Axes**: Y-axis (price) and X-axis (time/date) labels with intelligent formatting
 - **RESTful API**: Cloudflare Worker-powered chart generation endpoint
 - **Multiple Token Support**: SOL, USDC, TRUMP, JUP, WIF, BONK, and more
 - **Local Testing**: CLI tool for development and testing
 - **High Performance**: Built with Bun runtime and skia-canvas rendering
 - **Database Integration**: Neon PostgreSQL with Drizzle ORM
+- **Clean Architecture**: Proper separation of concerns between data operations and chart rendering
 
 ## 📋 Prerequisites
 
@@ -144,7 +146,7 @@ dex-sscr/
 │   └── gen-chart.ts         # Local chart generation CLI
 │
 └── 📦 src/
-    ├── chart-generator.ts   # Core chart rendering logic
+    ├── chart-generator.ts   # Core chart rendering logic & orchestration
     ├── constants.ts         # App-wide constants
     ├── worker.ts            # Cloudflare Worker entry point
     │
@@ -164,7 +166,7 @@ dex-sscr/
     │
     └── 🔧 utils/
         ├── chart-calculations.ts  # Chart math & scaling
-        ├── db.ts                  # Database operations
+        ├── db.ts                  # Database operations only
         ├── file-operations.ts     # File I/O utilities
         └── logger.ts              # Logging utilities
 ```
@@ -198,6 +200,8 @@ The service comes with pre-configured support for popular tokens:
 - **Bearish Color**: `#ff5f6d` (neon red)
 - **Background**: Dark gradient (`#050607` → `#0b0f10`)
 - **Neon Effects**: Multi-layer glow with blur
+- **Axes**: Smart price formatting (K, decimal places) and time formatting (hours, dates)
+- **Labels**: Professional typography with proper spacing and contrast
 
 ## 🚀 Deployment
 
