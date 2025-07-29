@@ -51,12 +51,6 @@ export const DB_CONFIG = {
   DEFAULT_ORDER_LIMIT: 1000,
 } as const;
 
-// Known token addresses for testing
-export const KNOWN_TOKENS = {
-  JUP: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
-  BONK: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-} as const;
-
 // File operations
 export const FILE_CONFIG = {
   OUTPUT_DIR: "./data",

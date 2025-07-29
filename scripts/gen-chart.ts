@@ -6,7 +6,7 @@
 import { generateChart } from "../src/chart-generator";
 import { CHART_DEFAULTS } from "../src/constants";
 import type { ChartGenerationConfig, Point } from "../src/types";
-import { fetchOHLCVData, getAvailableTokens, KNOWN_TOKENS, validateTokenForCharting } from "../src/utils/db";
+import { fetchOHLCVData, getAvailableTokensWithDetails, resolveTokenAddress, validateTokenForCharting } from "../src/utils/db";
 import { logger } from "../src/utils/logger";
 
 interface ScriptArgs {
@@ -29,24 +29,19 @@ function parseArgs(): ScriptArgs {
 }
 
 /**
- * Get token address from symbol or address
+ * Get token address from symbol or address using database
  */
-function getTokenAddress(tokenSymbol: string): string {
-  // Check if it's a known symbol
-  const symbolEntry = Object.entries(KNOWN_TOKENS).find(
-    ([symbol]) => symbol.toLowerCase() === tokenSymbol.toLowerCase(),
-  );
+async function getTokenAddress(tokenInput: string): Promise<string> {
+  const resolvedAddress = await resolveTokenAddress(tokenInput);
 
-  if (symbolEntry) {
-    return symbolEntry[1];
+  if (!resolvedAddress) {
+    // Get available tokens to show in error
+    const availableTokens = await getAvailableTokensWithDetails();
+    const symbolsList = availableTokens.map(t => t.symbol).join(", ");
+    throw new Error(`Unknown token: ${tokenInput}. Available tokens: ${symbolsList}`);
   }
 
-  // If it's already an address (long string), return as is
-  if (tokenSymbol.length > 20) {
-    return tokenSymbol;
-  }
-
-  throw new Error(`Unknown token symbol: ${tokenSymbol}. Available symbols: ${Object.keys(KNOWN_TOKENS).join(", ")}`);
+  return resolvedAddress;
 }
 
 /**
@@ -88,29 +83,26 @@ function calculateMockEntryPrice(points: readonly Point[]): { entryPrice: number
  */
 async function listAvailableTokens(): Promise<void> {
   try {
-    const tokenAddresses = await getAvailableTokens();
+    const tokensWithDetails = await getAvailableTokensWithDetails();
     logger.info("\n🪙 Available tokens:");
 
-    // Check known tokens first
-    const knownEntries = Object.entries(KNOWN_TOKENS);
-    for (const [symbol, address] of knownEntries) {
-      if (tokenAddresses.includes(address)) {
-        try {
-          const validation = await validateTokenForCharting(address);
-          const status = validation.isValid ? "✅" : "❌";
-          logger.info(`  ${symbol} (${status} ${validation.dataCount} points)`);
-        } catch {
-          logger.info(`  ${symbol} (❌ error)`);
-        }
+    if (tokensWithDetails.length === 0) {
+      logger.info("  No tokens found with OHLCV data");
+      return;
+    }
+
+    // Show all tokens with their symbols and data count
+    for (const token of tokensWithDetails) {
+      try {
+        const validation = await validateTokenForCharting(token.address);
+        const status = validation.isValid ? "✅" : "❌";
+        logger.info(`  ${token.symbol} - ${token.name} (${status} ${validation.dataCount} points)`);
+      } catch {
+        logger.info(`  ${token.symbol} - ${token.name} (❌ error)`);
       }
     }
 
-    // Show count of other available tokens
-    const knownAddresses = Object.values(KNOWN_TOKENS) as string[];
-    const otherTokensCount = tokenAddresses.filter(addr => !knownAddresses.includes(addr)).length;
-    if (otherTokensCount > 0) {
-      logger.info(`  ... and ${otherTokensCount} other tokens`);
-    }
+    logger.info(`\nTotal: ${tokensWithDetails.length} tokens available`);
   } catch (error) {
     logger.error(`Failed to fetch available tokens: ${error}`);
   }
@@ -133,7 +125,7 @@ async function main(): Promise<void> {
 
   // Generate chart for specified token
   try {
-    const tokenAddress = getTokenAddress(args.tokenSymbol);
+    const tokenAddress = await getTokenAddress(args.tokenSymbol);
 
     logger.info(`🎯 Selected token: ${args.tokenSymbol} (${tokenAddress})`);
 
@@ -182,9 +174,8 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.error(`❌ Script failed: ${error}`);
 
-    if (error instanceof Error && error.message.includes("Unknown token symbol")) {
-      logger.info("\n💡 Available token symbols:");
-      logger.info(`  ${Object.keys(KNOWN_TOKENS).join(", ")}`);
+    if (error instanceof Error && error.message.includes("Unknown token")) {
+      logger.info("\n💡 To see available tokens, run the script without arguments");
     }
 
     process.exit(1);
@@ -205,7 +196,7 @@ Examples:
   tsx --env-file .dev.vars scripts/gen-chart.ts USDC 12           # USDC token, 12h
   tsx --env-file .dev.vars scripts/gen-chart.ts JUP 48 ./data/jup.png  # JUP token, 48h, custom output
 
-Available tokens: ${Object.keys(KNOWN_TOKENS).join(", ")}
+Available tokens: Run without arguments to see current list from database
 
 Options:
   token   Token symbol (SOL, USDC, etc.) or address

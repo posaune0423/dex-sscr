@@ -4,14 +4,11 @@
  */
 
 import { and, count, desc, eq, gte, lte } from "drizzle-orm";
-import { CHART_DEFAULTS, DB_CONFIG, KNOWN_TOKENS } from "../constants";
+import { CHART_DEFAULTS, DB_CONFIG } from "../constants";
 import { getDB } from "../db";
-import { tokenOHLCV } from "../db/schema";
+import { tokenOHLCV, tokens } from "../db/schema";
 import type { OHLCVDataParams, OHLCVDataResult, Point } from "../types";
 import { logger } from "./logger";
-
-// Re-export known tokens from constants
-export { KNOWN_TOKENS };
 
 /**
  * Get all available token addresses from the database
@@ -21,13 +18,127 @@ export async function getAvailableTokens(): Promise<string[]> {
     const db = getDB();
     const results = await db.selectDistinct({ token: tokenOHLCV.token }).from(tokenOHLCV);
 
-    const tokens = results.map((row) => row.token);
-    logger.debug(`Found ${tokens.length} tokens with OHLCV data`);
-    return tokens;
+    const tokenAddresses = results.map((row) => row.token);
+    logger.debug(`Found ${tokenAddresses.length} tokens with OHLCV data`);
+    return tokenAddresses;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     logger.error(`Failed to get available tokens: ${message}`);
     return [];
+  }
+}
+
+/**
+ * Get token information by symbol
+ */
+export async function getTokenBySymbol(
+  symbol: string,
+): Promise<{ address: string; name: string; symbol: string } | null> {
+  try {
+    const db = getDB();
+    const result = await db
+      .select({
+        address: tokens.address,
+        name: tokens.name,
+        symbol: tokens.symbol,
+      })
+      .from(tokens)
+      .where(eq(tokens.symbol, symbol.toUpperCase()))
+      .limit(1);
+
+    if (result.length === 0) {
+      logger.debug(`Token with symbol ${symbol} not found`);
+      return null;
+    }
+
+    const token = result[0];
+    if (!token) {
+      logger.debug(`Token with symbol ${symbol} not found`);
+      return null;
+    }
+
+    logger.debug(`Found token ${symbol}: ${token.address}`);
+    return token;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Failed to get token by symbol ${symbol}: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * Get all tokens with their details that have OHLCV data
+ */
+export async function getAvailableTokensWithDetails(): Promise<
+  Array<{ address: string; name: string; symbol: string }>
+> {
+  try {
+    const db = getDB();
+
+    // Get tokens that have OHLCV data
+    const availableAddresses = await getAvailableTokens();
+
+    if (availableAddresses.length === 0) {
+      return [];
+    }
+
+    // Get token details for available addresses using a loop approach
+    const tokenDetails: Array<{ address: string; name: string; symbol: string }> = [];
+
+    for (const address of availableAddresses) {
+      if (!address) continue; // Skip undefined addresses
+
+      const tokenResult = await db
+        .select({
+          address: tokens.address,
+          name: tokens.name,
+          symbol: tokens.symbol,
+        })
+        .from(tokens)
+        .where(eq(tokens.address, address))
+        .limit(1);
+
+      if (tokenResult.length > 0) {
+        const token = tokenResult[0];
+        if (token) {
+          tokenDetails.push(token);
+        }
+      }
+    }
+
+    logger.debug(`Found ${tokenDetails.length} tokens with details and OHLCV data`);
+    return tokenDetails;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Failed to get available tokens with details: ${message}`);
+    return [];
+  }
+}
+
+/**
+ * Resolve token address from symbol or address string
+ */
+export async function resolveTokenAddress(input: string): Promise<string | null> {
+  try {
+    // If input looks like an address (long string), return as is
+    if (input.length > 20) {
+      logger.debug(`Input appears to be an address: ${input}`);
+      return input;
+    }
+
+    // Try to resolve as symbol
+    const tokenInfo = await getTokenBySymbol(input);
+    if (tokenInfo) {
+      logger.debug(`Resolved symbol ${input} to address: ${tokenInfo.address}`);
+      return tokenInfo.address;
+    }
+
+    logger.warn(`Could not resolve token: ${input}`);
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Failed to resolve token ${input}: ${message}`);
+    return null;
   }
 }
 

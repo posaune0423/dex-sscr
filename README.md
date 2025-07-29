@@ -173,18 +173,18 @@ dex-sscr/
 
 ## 🪙 Supported Tokens
 
-The service comes with pre-configured support for popular tokens:
+The service supports **all tokens available in the database** with OHLCV data. No hardcoded token list!
 
-| Symbol | Contract Address |
-|--------|------------------|
-| SOL    | `So11111111111111111111111111111111111111112` |
-| USDC   | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
-| TRUMP  | `HaP8r3ksG76PhQLTqR8FYBeNiQpejcFbQmiHbg787Ut1` |
-| JUP    | `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` |
-| WIF    | `EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm` |
-| BONK   | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` |
+- **Dynamic Token Discovery**: Automatically discovers all tokens with trading data
+- **Symbol Resolution**: Use familiar symbols (SOL, USDC, JUP, etc.) or contract addresses
+- **Real-time Availability**: Only shows tokens that actually have chart data
 
-*Additional tokens can be added by providing their contract addresses directly.*
+To see currently available tokens:
+```bash
+bun run gen-chart  # Lists all tokens with data counts
+```
+
+*Any token with sufficient OHLCV data in the database can be charted automatically.*
 
 ## ⚙️ Configuration
 
